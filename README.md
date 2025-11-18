@@ -86,8 +86,8 @@ nuclei -version
 
 ### Clone the project
 ```bash
-git clone https://github.com/your-username/nuclei-template-generator-python
-cd nuclei-template-generator-python
+git clone https://github.com/narenndhra/Nuclei-Template-Generator.git
+cd Nuclei-Template-Generator
 ```
 
 ### Create virtual environment
@@ -109,12 +109,12 @@ venv\Scripts\activate
 
 ### Install dependencies
 ```bash
-pip install -r requirements.txt
+pip install PyQt6==6.6.1 PyYAML==6.0.1
 ```
 
 ### Run the application
 ```bash
-python nuclei_generator.py
+python nuclei-template-generator.py
 ```
 
 ---
