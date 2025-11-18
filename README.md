@@ -208,9 +208,6 @@ pip install --upgrade PyQt6
 
 ---
 
-# License
-MIT License
+## 👤 Author
 
----
-
-**Happy Template Hunting! 🎯**
+**Narendra Reddy (Entersoft Security)** 
