@@ -68,14 +68,12 @@ sudo apt install nuclei    # Ubuntu/Debian
 
 4. Move the folder to:
 ```
-C:\Program Files
-uclei
+C:\Program Files\nuclei
 ```
 
 5. Open **PowerShell (Run as Administrator)** and set PATH:
 ```powershell
-setx PATH "$env:PATH;C:\Program Files
-uclei"
+setx PATH "$env:PATH;C:\Program Files\nuclei"
 ```
 
 6. Verify installation:
