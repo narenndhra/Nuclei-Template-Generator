@@ -7,111 +7,213 @@ This is a Python port of the original PortSwigger Nuclei Template Generator.
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
+---
+
 ## Features
 
 ### 🎯 Template Generation
-- GUI-based Nuclei template builder  
-- Parse raw HTTP requests & responses  
-- Auto-create word, regex, status & binary matchers  
-- Multi-line selection splitting  
-- Auto-detect header/body part  
-- Auto-add response status matchers  
+- Visual GUI for creating Nuclei templates  
+- Paste raw HTTP requests & responses  
+- Automatic matcher generation (word, regex, binary)  
+- Multi-line text selection → auto-split into matchers  
+- Auto-detect matcher part (header/body)  
+- Auto-add status matcher from HTTP response  
 
 ### 📝 Template Editing
 - YAML syntax highlighting  
-- CVE/CWE/Severity classification  
-- Modify existing templates  
-- Supports multiple matcher types  
+- Add CVE, CWE, CVSS scoring  
+- Edit/update existing templates  
+- Multiple matcher type support  
 
 ### ⚡ Template Execution
-- Run templates directly inside the UI  
-- Auto-generate full Nuclei CLI commands  
-- Command history & re-run  
-- Real-time colorized output  
-- CLI flag helper  
+- Execute templates directly  
+- Auto-generate Nuclei CLI command  
+- Execution history + rerun  
+- Colorized live output  
+- CLI flag helper window  
 
 ### 🎨 UI & Productivity
-- Light/Dark themes  
-- Adjustable font sizes  
-- Persistent configuration  
+- Light & Dark themes  
+- Adjustable fonts  
+- Persistent settings  
 - Keyboard shortcuts  
-- Modern clean layout  
+- Modern interface  
+
+---
 
 # Installation
 
 ## 1. Install Nuclei
 
-### Linux / macOS
+### **Linux / macOS**
 ```bash
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-brew install nuclei
-sudo apt install nuclei
+
+# or package managers
+brew install nuclei        # macOS
+sudo apt install nuclei    # Ubuntu/Debian
 ```
 
-### Windows
-1. Download latest **windows_amd64.zip** from:  
+---
+
+### **Windows Installation Guide**
+
+1. Visit:  
    https://github.com/projectdiscovery/nuclei/releases
 
-2. Extract it.
+2. Download the latest release:  
+   **nuclei_*_windows_amd64.zip**
 
-3. Move folder to:
+3. Extract the ZIP file.
+
+4. Move the folder to:
 ```
-C:\Program Files\nuclei
+C:\Program Files
+uclei
 ```
 
-4. Set PATH (PowerShell Admin):
+5. Open **PowerShell (Run as Administrator)** and set PATH:
 ```powershell
-setx PATH "$env:PATH;C:\Program Files\nuclei"
+setx PATH "$env:PATH;C:\Program Files
+uclei"
 ```
 
-5. Verify:
+6. Verify installation:
 ```powershell
 nuclei -version
 ```
 
-## 2. Install Python Application
+---
 
-### Clone
+# 2. Install Python Application
+
+### Clone the project
 ```bash
 git clone https://github.com/your-username/nuclei-template-generator-python
 cd nuclei-template-generator-python
 ```
 
-### Virtual environment
+### Create virtual environment
 ```bash
 python -m venv venv
 ```
 
 Activate:
 
-Linux/macOS:
+**Linux/macOS**
 ```bash
 source venv/bin/activate
 ```
 
-Windows:
+**Windows**
 ```powershell
-venv\Scripts\activate
+venv\Scriptsctivate
 ```
 
-### Install requirements
+### Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run
+### Run the application
 ```bash
 python nuclei_generator.py
 ```
 
-# Usage
+---
 
-1. Paste HTTP request/response  
-2. Create matchers  
-3. Generate template YAML  
-4. Execute template  
+# Usage Guide
+
+### 1. Paste Request/Response
+Paste raw HTTP request & response into the text panels.
+
+### 2. Create Matchers
+Select text → click **Add Matcher from Selection**  
+(or use Add Word/Add Regex manually)
+
+### 3. Generate Template
+Fill template fields → click **Generate Template YAML**
+
+### 4. Execute Template
+Switch to Execute tab → enter target → click Run
+
+---
+
+# Example Templates
+
+### SQL Injection
+```yaml
+id: sql-injection-test
+info:
+  name: SQL Injection Test
+  author: security-team
+  severity: high
+  tags: sqli, injection
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/users?id=1'"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "SQL syntax"
+          - "mysql_fetch"
+          - "ORA-01756"
+      - type: status
+        status:
+          - 500
+```
+
+### Reflected XSS
+```yaml
+id: xss-reflected
+info:
+  name: Reflected XSS
+  author: security-team
+  severity: medium
+  tags: xss, injection
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/search?q=<script>alert(1)</script>"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<script>alert(1)</script>"
+      - type: word
+        part: header
+        words:
+          - "text/html"
+      - type: status
+        status:
+          - 200
+```
+
+---
+
+# Troubleshooting
+
+### Nuclei not found
+```bash
+nuclei -version
+```
+
+### PyQt6 issues
+```bash
+pip install --upgrade PyQt6
+```
+
+### YAML errors
+- Use 2 spaces indentation  
+- Ensure fields exist: `id`, `info`, `requests`  
+
+---
 
 # License
 MIT License
+
+---
 
 **Happy Template Hunting! 🎯**
