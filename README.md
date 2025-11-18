@@ -1,7 +1,6 @@
 # Nuclei Template Generator - Python Edition
 
 A standalone Python application for generating Nuclei templates with an improved modern UI.  
-This is a Python port of the original PortSwigger Nuclei Template Generator.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
@@ -105,7 +104,7 @@ source venv/bin/activate
 
 **Windows**
 ```powershell
-venv\Scriptsctivate
+venv\Scripts\activate
 ```
 
 ### Install dependencies
