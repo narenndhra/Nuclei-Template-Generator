@@ -81,6 +81,33 @@ apt install nuclei   # Ubuntu/Debian
 
 ### Install Python Application
 
+#### Automated Installation (Recommended)
+
+**Linux/macOS:**
+```bash
+# Make installer executable
+chmod +x install.sh
+
+# Run installer
+./install.sh
+```
+
+**Windows:**
+```batch
+# Run installer
+install.bat
+```
+
+The installer will:
+- ✓ Check Python installation
+- ✓ Detect Nuclei (if installed)
+- ✓ Create virtual environment
+- ✓ Install dependencies
+- ✓ Create launcher shortcuts
+- ✓ Set up desktop integration
+
+#### Manual Installation
+
 1. **Clone or download the repository**:
 ```bash
 # Create a project directory
@@ -135,6 +162,60 @@ cd /path/to/nuclei-template-generator-python
 source venv/bin/activate
 python nuclei_generator.py
 ```
+
+#### Windows
+
+**Option 1: Create a Batch File**
+
+Create `nuclei-generator.bat`:
+```batch
+@echo off
+cd /d C:\path\to\nuclei-template-generator-python
+call venv\Scripts\activate.bat
+python nuclei_generator.py
+pause
+```
+
+**Option 2: Create a VBS Script (No Console Window)**
+
+Create `nuclei-generator.vbs`:
+```vbscript
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.CurrentDirectory = "C:\path\to\nuclei-template-generator-python"
+WshShell.Run "cmd /c venv\Scripts\activate.bat && python nuclei_generator.py", 0, False
+Set WshShell = Nothing
+```
+
+**Option 3: Create a Windows Shortcut**
+
+1. Right-click on Desktop → New → Shortcut
+2. Enter target:
+   ```
+   C:\path\to\nuclei-template-generator-python\venv\Scripts\pythonw.exe C:\path\to\nuclei-template-generator-python\nuclei_generator.py
+   ```
+3. Name it "Nuclei Template Generator"
+4. Right-click shortcut → Properties → Change Icon
+5. Browse to `C:\Windows\System32\shell32.dll` and select an icon
+
+**Option 4: Create a PowerShell Script**
+
+Create `nuclei-generator.ps1`:
+```powershell
+Set-Location "C:\path\to\nuclei-template-generator-python"
+& ".\venv\Scripts\Activate.ps1"
+python nuclei_generator.py
+```
+
+Then create a shortcut with target:
+```
+powershell.exe -ExecutionPolicy Bypass -File "C:\path\to\nuclei-template-generator-python\nuclei-generator.ps1"
+```
+
+**Option 5: Pin to Start Menu/Taskbar**
+
+1. Create any of the above shortcuts
+2. Right-click the shortcut
+3. Select "Pin to Start" or "Pin to Taskbar"
 
 ## Usage Guide
 
