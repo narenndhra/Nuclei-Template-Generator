@@ -1,7 +1,8 @@
 """
-Nuclei Template Generator v2.0 - Professional Edition
-Generates proper Nuclei templates with raw HTTP request format
-Modern UI with advanced features - Final Version
+Nuclei Template Generator v2.2 - Professional Edition
+- Auto-saves with user-provided Template ID as filename
+- Saves to user-configured template directory  
+- Fixed font sizing and encoding in execution
 """
 
 import sys
@@ -20,10 +21,82 @@ from PyQt6.QtWidgets import (
     QFrame, QDialog, QSpinBox, QTableWidget, QTableWidgetItem, 
     QHeaderView, QAbstractItemView, QListWidget, QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QThread, pyqtSlot
 from PyQt6.QtGui import (
-    QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QAction, QKeySequence
+    QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QAction, QKeySequence,
+    QTextCursor
 )
+
+
+# ============================================================================
+# Nuclei Execution Thread with Proper Encoding
+# ============================================================================
+class NucleiExecutionThread(QThread):
+    output_ready = pyqtSignal(str)
+    execution_finished = pyqtSignal(int, str)
+    
+    def __init__(self, command: List[str]):
+        super().__init__()
+        self.command = command
+        self.process = None
+        self._stop_requested = False
+    
+    def run(self):
+        try:
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['LC_ALL'] = 'en_US.UTF-8'
+            
+            self.process = subprocess.Popen(
+                self.command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                bufsize=1
+            )
+            
+            while True:
+                if self._stop_requested:
+                    self.process.terminate()
+                    break
+                    
+                line = self.process.stdout.readline()
+                if not line and self.process.poll() is not None:
+                    break
+                if line:
+                    try:
+                        decoded = line.decode('utf-8', errors='replace')
+                    except:
+                        decoded = line.decode('latin-1', errors='replace')
+                    decoded = self.strip_ansi(decoded)
+                    self.output_ready.emit(decoded)
+            
+            return_code = self.process.wait(timeout=10)
+            
+            stderr = self.process.stderr.read()
+            try:
+                stderr_text = stderr.decode('utf-8', errors='replace')
+            except:
+                stderr_text = stderr.decode('latin-1', errors='replace')
+            
+            stderr_text = self.strip_ansi(stderr_text)
+            self.execution_finished.emit(return_code, stderr_text)
+            
+        except subprocess.TimeoutExpired:
+            self.output_ready.emit("\n⚠️ Execution timeout\n")
+            self.execution_finished.emit(-1, "Timeout")
+        except Exception as e:
+            self.output_ready.emit(f"\n❌ Error: {str(e)}\n")
+            self.execution_finished.emit(-1, str(e))
+    
+    def strip_ansi(self, text: str) -> str:
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+    
+    def stop(self):
+        self._stop_requested = True
+        if self.process:
+            self.process.terminate()
 
 
 # ============================================================================
@@ -274,7 +347,6 @@ class MatcherDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         
-        # Part selection
         part_layout = QHBoxLayout()
         part_layout.addWidget(QLabel("Match in:"))
         self.part_combo = QComboBox()
@@ -283,7 +355,6 @@ class MatcherDialog(QDialog):
         part_layout.addStretch()
         layout.addLayout(part_layout)
         
-        # Content input
         if self.matcher_type == 'status':
             layout.addWidget(QLabel("Status Codes (comma-separated):"))
             self.content_input = ModernLineEdit("200, 201, 204")
@@ -297,7 +368,6 @@ class MatcherDialog(QDialog):
             self.content_input.setMinimumHeight(100)
             layout.addWidget(self.content_input)
         
-        # Options
         if self.matcher_type in ['word', 'regex']:
             self.case_insensitive = QCheckBox("Case Insensitive")
             layout.addWidget(self.case_insensitive)
@@ -305,7 +375,6 @@ class MatcherDialog(QDialog):
             self.negative = QCheckBox("Negative Match")
             layout.addWidget(self.negative)
         
-        # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         
@@ -363,7 +432,6 @@ class HTTPPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         
-        # Header
         header = QHBoxLayout()
         title = QLabel("📡 HTTP Request/Response")
         title.setObjectName("sectionTitle")
@@ -375,12 +443,10 @@ class HTTPPanel(QWidget):
         header.addWidget(self.import_btn)
         layout.addLayout(header)
         
-        # Splitter
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
         splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
-        # Request
         req_widget = QWidget()
         req_layout = QVBoxLayout(req_widget)
         req_layout.setContentsMargins(0, 0, 0, 0)
@@ -390,7 +456,6 @@ class HTTPPanel(QWidget):
         req_title.setObjectName("cardTitle")
         req_layout.addWidget(req_title)
         self.request_text = ModernTextEdit("Paste HTTP request here...")
-        self.request_text.setFont(QFont("JetBrains Mono", 11))
         req_layout.addWidget(self.request_text, 1)
         
         req_btn = QHBoxLayout()
@@ -402,7 +467,6 @@ class HTTPPanel(QWidget):
         
         splitter.addWidget(req_widget)
         
-        # Response
         resp_widget = QWidget()
         resp_layout = QVBoxLayout(resp_widget)
         resp_layout.setContentsMargins(0, 0, 0, 0)
@@ -412,7 +476,6 @@ class HTTPPanel(QWidget):
         resp_title.setObjectName("cardTitle")
         resp_layout.addWidget(resp_title)
         self.response_text = ModernTextEdit("Paste HTTP response here...")
-        self.response_text.setFont(QFont("JetBrains Mono", 11))
         resp_layout.addWidget(self.response_text, 1)
         
         resp_btn = QHBoxLayout()
@@ -438,6 +501,10 @@ class HTTPPanel(QWidget):
         layout.addWidget(splitter, 1)
         
         self.response_text.textChanged.connect(self.on_response_changed)
+    
+    def set_font(self, font: QFont):
+        self.request_text.setFont(font)
+        self.response_text.setFont(font)
     
     def on_response_changed(self):
         response = self.response_text.toPlainText()
@@ -478,7 +545,7 @@ class HTTPPanel(QWidget):
     def import_from_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import Request", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 self.request_text.setText(f.read())
     
     def get_raw_request(self, use_hostname_variable: bool = True) -> str:
@@ -509,26 +576,27 @@ class TemplateEditorPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         
-        # Header
         header_title = QLabel("📝 Template Editor")
         header_title.setObjectName("sectionTitle")
         layout.addWidget(header_title)
         
-        # Metadata section title
         meta_title = QLabel("📋 Template Info")
         meta_title.setObjectName("cardTitle")
         layout.addWidget(meta_title)
         
-        # Metadata - compact
         meta_widget = QWidget()
         meta_layout = QVBoxLayout(meta_widget)
         meta_layout.setContentsMargins(0, 0, 0, 0)
         meta_layout.setSpacing(4)
         
-        # Row 1
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("ID:"))
-        self.template_id = ModernLineEdit("my-template")
+        id_label = QLabel("ID*:")
+        id_label.setStyleSheet("color: #64ffda; font-weight: bold;")
+        id_label.setToolTip("Required - This will be the filename")
+        row1.addWidget(id_label)
+        self.template_id = ModernLineEdit()
+        self.template_id.setPlaceholderText("REQUIRED - e.g., cve-2024-1234-sqli (used as filename)")
+        self.template_id.setToolTip("Enter template ID - this will be used as the filename")
         row1.addWidget(self.template_id, 2)
         row1.addWidget(QLabel("Severity:"))
         self.severity_combo = QComboBox()
@@ -540,47 +608,45 @@ class TemplateEditorPanel(QWidget):
         row1.addWidget(self.severity_badge)
         meta_layout.addLayout(row1)
         
-        # Row 2
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Name:"))
-        self.template_name = ModernLineEdit("Vulnerability Name")
+        self.template_name = ModernLineEdit()
+        self.template_name.setPlaceholderText("e.g., SQL Injection in Login Form")
         row2.addWidget(self.template_name, 2)
         row2.addWidget(QLabel("Author:"))
         self.author = ModernLineEdit(getpass.getuser())
         row2.addWidget(self.author)
         meta_layout.addLayout(row2)
         
-        # Row 3
         row3 = QHBoxLayout()
         row3.addWidget(QLabel("Tags:"))
-        self.tags = ModernLineEdit("cve,xss,sqli")
+        self.tags = ModernLineEdit()
+        self.tags.setPlaceholderText("e.g., cve,sqli,auth-bypass")
         row3.addWidget(self.tags, 2)
         row3.addWidget(QLabel("Reference:"))
-        self.reference = ModernLineEdit("https://example.com")
+        self.reference = ModernLineEdit()
+        self.reference.setPlaceholderText("e.g., https://nvd.nist.gov/vuln/detail/CVE-2024-XXXX")
         row3.addWidget(self.reference)
         meta_layout.addLayout(row3)
         
-        # Description
         row4 = QHBoxLayout()
         row4.addWidget(QLabel("Description:"))
-        self.description = ModernLineEdit("Description of the vulnerability")
+        self.description = ModernLineEdit()
+        self.description.setPlaceholderText("e.g., Detects SQL injection vulnerability in login endpoint")
         row4.addWidget(self.description)
         meta_layout.addLayout(row4)
         
         layout.addWidget(meta_widget)
         
-        # YAML Editor title
         yaml_title = QLabel("📄 Generated YAML")
         yaml_title.setObjectName("cardTitle")
         layout.addWidget(yaml_title)
         
-        self.yaml_editor = ModernTextEdit("# Template will be generated here...")
-        self.yaml_editor.setFont(QFont("JetBrains Mono", 11))
+        self.yaml_editor = ModernTextEdit("# Enter Template ID above, paste HTTP request, then click 'Generate Nuclei Template'\n# The file will be saved as: <template-id>.yaml in your configured directory")
         self.yaml_editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.highlighter = YAMLHighlighter(self.yaml_editor.document())
         layout.addWidget(self.yaml_editor, 1)
         
-        # Buttons
         btn_layout = QHBoxLayout()
         self.copy_btn = ModernButton("📋 Copy to Clipboard", "secondary")
         self.copy_btn.clicked.connect(self.copy_to_clipboard)
@@ -591,6 +657,9 @@ class TemplateEditorPanel(QWidget):
         btn_layout.addWidget(self.validate_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
+    
+    def set_font(self, font: QFont):
+        self.yaml_editor.setFont(font)
     
     def update_severity_badge(self, severity: str):
         self.severity_badge.set_severity(severity)
@@ -631,7 +700,6 @@ class MatchersPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         
-        # Header
         header = QHBoxLayout()
         title = QLabel("🎯 Matchers")
         title.setObjectName("sectionTitle")
@@ -643,12 +711,10 @@ class MatchersPanel(QWidget):
         header.addWidget(self.condition_combo)
         layout.addLayout(header)
         
-        # Table title
         table_title = QLabel("📋 Added Matchers")
         table_title.setObjectName("cardTitle")
         layout.addWidget(table_title)
         
-        # Table
         self.matcher_table = QTableWidget()
         self.matcher_table.setColumnCount(4)
         self.matcher_table.setHorizontalHeaderLabels(['Type', 'Part', 'Value', 'Del'])
@@ -664,7 +730,6 @@ class MatchersPanel(QWidget):
         self.matcher_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.matcher_table, 1)
         
-        # Buttons
         btn_layout = QHBoxLayout()
         for label, mtype in [("+ Word", "word"), ("+ Regex", "regex"), ("+ Status", "status"), ("+ DSL", "dsl")]:
             btn = ModernButton(label, "secondary")
@@ -741,6 +806,7 @@ class ExecutionPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.command_history = []
+        self.execution_thread = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setup_ui()
     
@@ -749,7 +815,6 @@ class ExecutionPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
         
-        # Target section title
         target_title = QLabel("🎯 Target Configuration")
         target_title.setObjectName("cardTitle")
         layout.addWidget(target_title)
@@ -766,26 +831,47 @@ class ExecutionPanel(QWidget):
         row2.addWidget(self.cli_flags)
         layout.addLayout(row2)
         
-        # Execute
+        templates_title = QLabel("📁 Saved Templates")
+        templates_title.setObjectName("cardTitle")
+        layout.addWidget(templates_title)
+        
+        template_row = QHBoxLayout()
+        self.template_list = QComboBox()
+        self.template_list.addItem("-- Current Generated Template --", "current")
+        self.template_list.setMinimumHeight(32)
+        template_row.addWidget(self.template_list, 1)
+        
+        refresh_btn = ModernButton("🔄 Refresh", "secondary")
+        refresh_btn.setMaximumWidth(100)
+        refresh_btn.clicked.connect(self.refresh_templates)
+        template_row.addWidget(refresh_btn)
+        layout.addLayout(template_row)
+        
+        exec_row = QHBoxLayout()
         self.execute_btn = ModernButton("▶ Execute Template", "success")
         self.execute_btn.setMinimumHeight(45)
         self.execute_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00C853, stop:1 #00E676); font-size: 14px; font-weight: bold; }
             QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00E676, stop:1 #69F0AE); }
+            QPushButton:disabled { background: #424242; color: #888; }
         """)
-        layout.addWidget(self.execute_btn)
+        exec_row.addWidget(self.execute_btn)
         
-        # Output section title
+        self.stop_btn = ModernButton("⏹ Stop", "secondary")
+        self.stop_btn.setMaximumWidth(100)
+        self.stop_btn.setEnabled(False)
+        exec_row.addWidget(self.stop_btn)
+        
+        layout.addLayout(exec_row)
+        
         output_title = QLabel("📤 Execution Output")
         output_title.setObjectName("cardTitle")
         layout.addWidget(output_title)
         
         self.output_text = ModernTextEdit()
         self.output_text.setReadOnly(True)
-        self.output_text.setFont(QFont("JetBrains Mono", 11))
         layout.addWidget(self.output_text, 1)
         
-        # History section title
         history_title = QLabel("📜 Command History")
         history_title.setObjectName("cardTitle")
         layout.addWidget(history_title)
@@ -793,6 +879,52 @@ class ExecutionPanel(QWidget):
         self.history_list = QListWidget()
         self.history_list.setMaximumHeight(100)
         layout.addWidget(self.history_list)
+    
+    def set_font(self, font: QFont):
+        self.output_text.setFont(font)
+    
+    def refresh_templates(self, template_dir: str = None):
+        current_selection = self.template_list.currentData()
+        
+        while self.template_list.count() > 1:
+            self.template_list.removeItem(1)
+        
+        template_dirs = [
+            Path(template_dir) if template_dir else Path.home() / '.nuclei-templates',
+            Path.home() / 'nuclei-templates',
+        ]
+        
+        templates_found = []
+        for tdir in template_dirs:
+            if tdir.exists():
+                for yaml_file in tdir.glob('*.yaml'):
+                    templates_found.append(yaml_file)
+                for yml_file in tdir.glob('*.yml'):
+                    templates_found.append(yml_file)
+        
+        templates_found.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        for template_path in templates_found[:30]:
+            self.template_list.addItem(f"📄 {template_path.name}", str(template_path))
+        
+        for i in range(self.template_list.count()):
+            if self.template_list.itemData(i) == current_selection:
+                self.template_list.setCurrentIndex(i)
+                break
+    
+    def get_selected_template(self) -> str:
+        return self.template_list.currentData() or "current"
+    
+    def set_execution_state(self, running: bool):
+        self.execute_btn.setEnabled(not running)
+        self.stop_btn.setEnabled(running)
+    
+    def append_output(self, text: str):
+        cursor = self.output_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        self.output_text.setTextCursor(cursor)
+        self.output_text.ensureCursorVisible()
     
     def add_to_history(self, command: str):
         if command not in self.command_history:
@@ -802,8 +934,8 @@ class ExecutionPanel(QWidget):
     def set_output(self, text: str):
         self.output_text.setText(text)
     
-    def append_output(self, text: str):
-        self.output_text.append(text)
+    def clear_output(self):
+        self.output_text.clear()
 
 
 # ============================================================================
@@ -814,14 +946,14 @@ class NucleiTemplateGenerator(QMainWindow):
         super().__init__()
         self.settings = QSettings('NucleiGenerator', 'App')
         self.current_template_data = {}
+        self.execution_thread = None
         self.init_ui()
+        self.apply_base_styles()
         self.load_settings()
-        self.apply_styles()
     
     def init_ui(self):
-        self.setWindowTitle("🔬 Nuclei Template Generator Pro")
+        self.setWindowTitle("🔬 Nuclei Template Generator Pro v2.2")
         
-        # Screen-based sizing
         screen = QApplication.primaryScreen().availableGeometry()
         w, h = int(screen.width() * 0.9), int(screen.height() * 0.9)
         self.setGeometry((screen.width() - w) // 2, (screen.height() - h) // 2, w, h)
@@ -836,30 +968,25 @@ class NucleiTemplateGenerator(QMainWindow):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
         
-        # Main splitter
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_splitter.setChildrenCollapsible(False)
         
-        # Left - HTTP Panel
         self.http_panel = HTTPPanel()
         self.http_panel.request_parsed.connect(self.on_request_parsed)
         self.http_panel.matcher_added.connect(self.on_matcher_added)
         main_splitter.addWidget(self.http_panel)
         
-        # Right - Tabs
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
         self.tab_widget = QTabWidget()
         
-        # Generator Tab
         gen_widget = QWidget()
         gen_layout = QVBoxLayout(gen_widget)
         gen_layout.setContentsMargins(8, 8, 8, 8)
         gen_layout.setSpacing(8)
         
-        # Splitter for editor and matchers
         gen_splitter = QSplitter(Qt.Orientation.Vertical)
         gen_splitter.setChildrenCollapsible(False)
         
@@ -875,7 +1002,6 @@ class NucleiTemplateGenerator(QMainWindow):
         
         gen_layout.addWidget(gen_splitter, 1)
         
-        # Generate button
         self.generate_btn = ModernButton("⚡ Generate Nuclei Template", "primary")
         self.generate_btn.setMinimumHeight(45)
         self.generate_btn.clicked.connect(self.generate_template)
@@ -887,12 +1013,11 @@ class NucleiTemplateGenerator(QMainWindow):
         
         self.tab_widget.addTab(gen_widget, "📝 Generator")
         
-        # Execute Tab
         self.execution_panel = ExecutionPanel()
         self.execution_panel.execute_btn.clicked.connect(self.execute_template)
+        self.execution_panel.stop_btn.clicked.connect(self.stop_execution)
         self.tab_widget.addTab(self.execution_panel, "▶ Execute")
         
-        # Settings Tab
         self.tab_widget.addTab(self.create_settings_tab(), "⚙️ Settings")
         
         right_layout.addWidget(self.tab_widget)
@@ -928,7 +1053,6 @@ class NucleiTemplateGenerator(QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
         
-        # Nuclei Configuration
         nuclei_title = QLabel("🔧 Nuclei Configuration")
         nuclei_title.setObjectName("settingsTitle")
         layout.addWidget(nuclei_title)
@@ -954,7 +1078,6 @@ class NucleiTemplateGenerator(QMainWindow):
         tmpl_layout.addWidget(browse_tmpl_btn)
         layout.addLayout(tmpl_layout)
         
-        # Editor Settings
         editor_title = QLabel("✏️ Editor Settings")
         editor_title.setObjectName("settingsTitle")
         layout.addWidget(editor_title)
@@ -963,14 +1086,13 @@ class NucleiTemplateGenerator(QMainWindow):
         font_layout.addWidget(QLabel("Font Size:"))
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 24)
-        self.font_size_spin.setValue(11)
+        self.font_size_spin.setValue(12)
         self.font_size_spin.setMinimumWidth(80)
-        self.font_size_spin.valueChanged.connect(self.change_font_size)
+        self.font_size_spin.valueChanged.connect(self.apply_font_size)
         font_layout.addWidget(self.font_size_spin)
         font_layout.addStretch()
         layout.addLayout(font_layout)
         
-        # Theme info
         theme_title = QLabel("🎨 Theme")
         theme_title.setObjectName("settingsTitle")
         layout.addWidget(theme_title)
@@ -997,12 +1119,98 @@ class NucleiTemplateGenerator(QMainWindow):
         if path:
             self.template_dir.setText(path)
     
-    def change_font_size(self, size: int):
-        font = QFont("JetBrains Mono", size)
-        self.template_editor.yaml_editor.setFont(font)
-        self.http_panel.request_text.setFont(font)
-        self.http_panel.response_text.setFont(font)
-        self.execution_panel.output_text.setFont(font)
+    def get_mono_font(self, size: int) -> QFont:
+        for family in ["JetBrains Mono", "Fira Code", "Source Code Pro", "Consolas", "Monaco", "Courier New"]:
+            font = QFont(family, size)
+            if font.exactMatch() or QFont(family).family() == family:
+                return QFont(family, size)
+        return QFont("Courier New", size)
+    
+    def apply_font_size(self, size: int):
+        mono_font = self.get_mono_font(size)
+        
+        self.template_editor.set_font(mono_font)
+        self.http_panel.set_font(mono_font)
+        self.execution_panel.set_font(mono_font)
+        
+        self.apply_styles_with_font_size(size)
+    
+    def apply_base_styles(self):
+        self.apply_styles_with_font_size(12)
+    
+    def apply_styles_with_font_size(self, base_size: int):
+        label_size = base_size
+        button_size = base_size
+        input_size = base_size
+        
+        self.setStyleSheet(f"""
+            * {{ font-family: 'SF Pro Display', 'Segoe UI', -apple-system, sans-serif; font-size: {label_size}px; }}
+            QMainWindow, QWidget {{ background: #0f0f23; color: #e0e0e0; }}
+            QLabel {{ color: #b0b0b0; font-size: {label_size}px; }}
+            #sectionTitle {{ color: #64ffda; font-size: {base_size + 3}px; font-weight: bold; }}
+            #settingsTitle {{ color: #64ffda; font-size: {base_size + 2}px; font-weight: bold; margin-top: 10px; }}
+            #cardTitle {{ color: #61AFEF; font-size: {base_size + 1}px; font-weight: bold; }}
+            
+            QLineEdit, QTextEdit {{ background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 8px 10px; color: #fff; font-size: {input_size}px; }}
+            QLineEdit:focus, QTextEdit:focus {{ border-color: #667eea; }}
+            
+            QPushButton {{ background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: {button_size}px; }}
+            QPushButton:hover {{ background: #764ba2; }}
+            QPushButton:disabled {{ background: #424242; color: #888; }}
+            #btn_secondary {{ background: #2a2a4a; }}
+            #btn_secondary:hover {{ background: #3a3a5a; }}
+            #btn_success {{ background: #00C853; }}
+            #btn_success:hover {{ background: #00E676; }}
+            
+            QComboBox {{ background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 8px; color: #fff; min-width: 80px; font-size: {input_size}px; }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{ background: #1a1a2e; border: 1px solid #2a2a4a; selection-background-color: #667eea; font-size: {input_size}px; }}
+            
+            QSpinBox {{ background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 6px; color: #fff; font-size: {input_size}px; }}
+            
+            QTabWidget::pane {{ background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px; }}
+            QTabBar::tab {{ background: #1a1a2e; color: #888; padding: 12px 24px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-size: {button_size}px; font-weight: 600; }}
+            QTabBar::tab:selected {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #667eea, stop:1 #764ba2); color: white; }}
+            QTabBar::tab:hover:!selected {{ background: #2a2a4a; color: #fff; }}
+            
+            QTableWidget {{ background: #0d0d1a; border: 1px solid #2a2a4a; border-radius: 6px; gridline-color: #2a2a4a; alternate-background-color: #151528; font-size: {label_size}px; }}
+            QHeaderView::section {{ background: #1a1a2e; color: #64ffda; padding: 10px; border: none; font-weight: bold; font-size: {label_size}px; }}
+            QTableWidget::item {{ padding: 8px; }}
+            QTableWidget::item:selected {{ background: #667eea; }}
+            
+            QListWidget {{ background: #0d0d1a; border: 1px solid #2a2a4a; border-radius: 6px; font-size: {label_size}px; }}
+            QListWidget::item {{ padding: 8px; }}
+            QListWidget::item:selected {{ background: #667eea; }}
+            
+            QCheckBox {{ color: #e0e0e0; font-size: {label_size}px; }}
+            QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px; border: 1px solid #2a2a4a; background: #1a1a2e; }}
+            QCheckBox::indicator:checked {{ background: #667eea; border-color: #667eea; }}
+            
+            QSplitter::handle {{ background: #2a2a4a; }}
+            QSplitter::handle:hover {{ background: #667eea; }}
+            QSplitter::handle:horizontal {{ width: 5px; }}
+            QSplitter::handle:vertical {{ height: 5px; }}
+            
+            QMenuBar {{ background: #0f0f23; color: #e0e0e0; font-size: {label_size}px; }}
+            QMenuBar::item {{ padding: 8px 14px; border-radius: 4px; }}
+            QMenuBar::item:selected {{ background: #2a2a4a; }}
+            QMenu {{ background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 6px; }}
+            QMenu::item {{ padding: 8px 24px; border-radius: 4px; font-size: {label_size}px; }}
+            QMenu::item:selected {{ background: #667eea; }}
+            
+            QScrollBar:vertical {{ background: #0f0f23; width: 10px; }}
+            QScrollBar::handle:vertical {{ background: #2a2a4a; border-radius: 5px; min-height: 20px; }}
+            QScrollBar::handle:vertical:hover {{ background: #667eea; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QScrollBar:horizontal {{ background: #0f0f23; height: 10px; }}
+            QScrollBar::handle:horizontal {{ background: #2a2a4a; border-radius: 5px; min-width: 20px; }}
+            QScrollBar::handle:horizontal:hover {{ background: #667eea; }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+            
+            QStatusBar {{ background: #1a1a2e; color: #64ffda; padding: 6px; font-size: {label_size - 1}px; }}
+            QMessageBox, QDialog {{ background: #0f0f23; }}
+            QMessageBox QLabel {{ font-size: {label_size}px; }}
+        """)
     
     def on_request_parsed(self, data: Dict):
         self.current_template_data['request'] = data
@@ -1021,15 +1229,40 @@ class NucleiTemplateGenerator(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please enter an HTTP request")
             return
         
-        template_id = re.sub(r'[^a-zA-Z0-9_-]', '-', self.template_editor.template_id.text().strip() or 'custom-template')
+        # Get template ID - REQUIRE user to provide it
+        user_template_id = self.template_editor.template_id.text().strip()
+        user_template_name = self.template_editor.template_name.text().strip()
+        
+        if not user_template_id:
+            # If no ID but name exists, derive ID from name
+            if user_template_name:
+                user_template_id = user_template_name.lower()
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Template ID Required", 
+                    "Please enter a Template ID (and optionally a Name).\n\n"
+                    "The ID will be used as the filename.\n"
+                    "Example: cve-2024-1234-sqli"
+                )
+                self.template_editor.template_id.setFocus()
+                return
+        
+        # Sanitize template ID for use as filename
+        template_id = re.sub(r'[^a-zA-Z0-9_-]', '-', user_template_id)
+        template_id = re.sub(r'-+', '-', template_id).strip('-').lower()
+        
+        if not template_id:
+            QMessageBox.warning(self, "Invalid ID", "Template ID contains no valid characters. Please use letters, numbers, hyphens, or underscores.")
+            return
         
         template = {
             'id': template_id,
             'info': {
-                'name': self.template_editor.template_name.text().strip() or template_id,
+                'name': user_template_name or template_id,
                 'author': self.template_editor.author.text().strip() or getpass.getuser(),
                 'severity': self.template_editor.severity_combo.currentText(),
-                'description': self.template_editor.description.text().strip() or 'description',
+                'description': self.template_editor.description.text().strip() or 'No description provided',
             }
         }
         
@@ -1056,8 +1289,44 @@ class NucleiTemplateGenerator(QMainWindow):
         
         yaml_content = self.format_nuclei_yaml(template)
         self.template_editor.set_template_yaml(yaml_content)
-        self.statusBar().showMessage("✓ Template generated!")
-        QMessageBox.information(self, "Generated", f"Template '{template_id}' generated successfully!")
+        
+        # Get save directory from settings
+        template_dir = Path(self.template_dir.text())
+        template_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save with user-provided template ID as filename
+        filename = f"{template_id}.yaml"
+        template_file = template_dir / filename
+        
+        try:
+            with open(template_file, 'w', encoding='utf-8') as f:
+                f.write(yaml_content)
+            
+            self.current_template_data['saved_path'] = str(template_file)
+            self.current_template_data['template_id'] = template_id
+            
+            self.statusBar().showMessage(f"✓ Saved: {filename} → {template_dir}")
+            
+            self.execution_panel.refresh_templates(self.template_dir.text())
+            
+            QMessageBox.information(
+                self, 
+                "Template Generated & Saved", 
+                f"✓ Template saved successfully!\n\n"
+                f"Filename: {filename}\n"
+                f"Directory: {template_dir}\n"
+                f"Full path: {template_file}\n\n"
+                f"You can now execute it from the Execute tab."
+            )
+            
+        except Exception as e:
+            self.statusBar().showMessage(f"Generated but save failed: {e}")
+            QMessageBox.warning(
+                self, 
+                "Save Failed", 
+                f"Template generated but could not save:\n{e}\n\n"
+                f"Use File > Save to save manually."
+            )
     
     def format_nuclei_yaml(self, template: Dict) -> str:
         lines = [f"id: {template['id']}", "info:"]
@@ -1114,34 +1383,66 @@ class NucleiTemplateGenerator(QMainWindow):
             QMessageBox.warning(self, "Warning", "Enter a target URL")
             return
         
-        yaml_content = self.template_editor.get_template_yaml()
-        if not yaml_content.strip() or yaml_content.startswith('#'):
-            QMessageBox.warning(self, "Warning", "Generate a template first")
-            return
+        selected = self.execution_panel.get_selected_template()
         
-        temp_dir = Path.home() / '.nuclei-generator-temp'
-        temp_dir.mkdir(exist_ok=True)
-        template_file = temp_dir / f"{re.sub(r'[^a-zA-Z0-9_-]', '-', self.template_editor.template_id.text() or 'temp')}.yaml"
-        
-        with open(template_file, 'w') as f:
-            f.write(yaml_content)
+        if selected == "current":
+            yaml_content = self.template_editor.get_template_yaml()
+            if not yaml_content.strip() or yaml_content.startswith('#'):
+                QMessageBox.warning(self, "Warning", "Generate a template first")
+                return
+            
+            if 'saved_path' in self.current_template_data:
+                template_file = self.current_template_data['saved_path']
+            else:
+                temp_dir = Path.home() / '.nuclei-generator-temp'
+                temp_dir.mkdir(exist_ok=True)
+                template_id = self.template_editor.template_id.text() or 'temp'
+                template_id = re.sub(r'[^a-zA-Z0-9_-]', '-', template_id)
+                template_file = str(temp_dir / f"{template_id}.yaml")
+                
+                with open(template_file, 'w', encoding='utf-8') as f:
+                    f.write(yaml_content)
+        else:
+            template_file = selected
+            if not Path(template_file).exists():
+                QMessageBox.warning(self, "Warning", f"Template file not found:\n{template_file}")
+                return
         
         cli_flags = self.execution_panel.cli_flags.text().split()
-        command = [nuclei_path, '-t', str(template_file), '-u', target] + cli_flags
+        command = [nuclei_path, '-t', template_file, '-u', target] + cli_flags
         
         self.execution_panel.add_to_history(' '.join(command))
         self.execution_panel.set_output(f"$ {' '.join(command)}\n\n{'='*50}\n\n")
         
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=120)
-            self.execution_panel.append_output(result.stdout + ("\n\nSTDERR:\n" + result.stderr if result.stderr else ""))
-            self.statusBar().showMessage("Execution completed")
-        except subprocess.TimeoutExpired:
-            self.execution_panel.append_output("\n⚠️ Timeout after 120s")
-        except FileNotFoundError:
-            self.execution_panel.append_output(f"\n❌ Nuclei not found at '{nuclei_path}'")
-        except Exception as e:
-            self.execution_panel.append_output(f"\n❌ Error: {e}")
+        self.execution_panel.set_execution_state(True)
+        
+        self.execution_thread = NucleiExecutionThread(command)
+        self.execution_thread.output_ready.connect(self.on_execution_output)
+        self.execution_thread.execution_finished.connect(self.on_execution_finished)
+        self.execution_thread.start()
+    
+    @pyqtSlot(str)
+    def on_execution_output(self, text: str):
+        self.execution_panel.append_output(text)
+    
+    @pyqtSlot(int, str)
+    def on_execution_finished(self, return_code: int, stderr: str):
+        self.execution_panel.set_execution_state(False)
+        
+        if stderr:
+            self.execution_panel.append_output(f"\n--- STDERR ---\n{stderr}")
+        
+        status = "✓ completed" if return_code == 0 else f"⚠ exit code: {return_code}"
+        self.execution_panel.append_output(f"\n\n{'='*50}\nExecution {status}\n")
+        self.statusBar().showMessage(f"Execution {status}")
+        
+        self.execution_thread = None
+    
+    def stop_execution(self):
+        if self.execution_thread:
+            self.execution_thread.stop()
+            self.execution_panel.append_output("\n\n⏹ Execution stopped by user\n")
+            self.statusBar().showMessage("Execution stopped")
     
     def new_template(self):
         self.http_panel.clear()
@@ -1151,15 +1452,15 @@ class NucleiTemplateGenerator(QMainWindow):
         self.template_editor.description.clear()
         self.template_editor.reference.clear()
         self.template_editor.tags.clear()
-        self.template_editor.yaml_editor.clear()
+        self.template_editor.yaml_editor.setText("# Enter template details above and click 'Generate Nuclei Template'")
         self.current_template_data = {}
-        self.statusBar().showMessage("New template")
+        self.statusBar().showMessage("New template - Enter Template ID to save")
     
     def open_template(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open", "", "YAML (*.yaml *.yml)")
         if file_path:
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
                     template = yaml.safe_load(content)
                 
@@ -1194,7 +1495,7 @@ class NucleiTemplateGenerator(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save", default_name, "YAML (*.yaml *.yml)")
         if file_path:
             try:
-                with open(file_path, 'w') as f:
+                with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(self.template_editor.get_template_yaml())
                 self.statusBar().showMessage(f"Saved: {file_path}")
                 QMessageBox.information(self, "Saved", f"Saved to:\n{file_path}")
@@ -1227,92 +1528,39 @@ class NucleiTemplateGenerator(QMainWindow):
     def load_settings(self):
         self.nuclei_path.setText(self.settings.value('nuclei_path', ''))
         self.template_dir.setText(self.settings.value('template_dir', str(Path.home() / '.nuclei-templates')))
-        font_size = int(self.settings.value('font_size', 11))
+        font_size = int(self.settings.value('font_size', 12))
         self.font_size_spin.setValue(font_size)
-        self.change_font_size(font_size)
+        self.apply_font_size(font_size)
         if not self.nuclei_path.text():
             self.auto_detect_nuclei()
     
     def show_about(self):
-        QMessageBox.about(self, "About", "<h2>Nuclei Template Generator Pro</h2><p>v2.0 - Professional tool for Nuclei templates</p>")
+        QMessageBox.about(self, "About", 
+            "<h2>Nuclei Template Generator Pro</h2>"
+            "<p>v2.2 - Professional tool for Nuclei templates</p>"
+            "<p><b>Features:</b></p>"
+            "<ul>"
+            "<li>Auto-saves with your Template ID as filename</li>"
+            "<li>Saves to your configured template directory</li>"
+            "<li>Real-time execution output with proper encoding</li>"
+            "<li>Customizable font sizes</li>"
+            "</ul>"
+        )
     
-    def apply_styles(self):
-        self.setStyleSheet("""
-            * { font-family: 'SF Pro Display', 'Segoe UI', -apple-system, sans-serif; font-size: 13px; }
-            QMainWindow, QWidget { background: #0f0f23; color: #e0e0e0; }
-            QLabel { color: #b0b0b0; font-size: 13px; }
-            #sectionTitle { color: #64ffda; font-size: 16px; font-weight: bold; }
-            #settingsTitle { color: #64ffda; font-size: 15px; font-weight: bold; margin-top: 10px; }
-            #cardTitle { color: #61AFEF; font-size: 14px; font-weight: bold; }
-            
-            QLineEdit, QTextEdit { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 8px 10px; color: #fff; font-size: 13px; }
-            QLineEdit:focus, QTextEdit:focus { border-color: #667eea; }
-            
-            QPushButton { background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 13px; }
-            QPushButton:hover { background: #764ba2; }
-            #btn_secondary { background: #2a2a4a; }
-            #btn_secondary:hover { background: #3a3a5a; }
-            #btn_success { background: #00C853; }
-            #btn_success:hover { background: #00E676; }
-            
-            QComboBox { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 8px; color: #fff; min-width: 80px; font-size: 13px; }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView { background: #1a1a2e; border: 1px solid #2a2a4a; selection-background-color: #667eea; }
-            
-            QSpinBox { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 6px; color: #fff; font-size: 13px; }
-            
-            QTabWidget::pane { background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px; }
-            QTabBar::tab { background: #1a1a2e; color: #888; padding: 12px 24px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-size: 13px; font-weight: 600; }
-            QTabBar::tab:selected { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #667eea, stop:1 #764ba2); color: white; }
-            QTabBar::tab:hover:!selected { background: #2a2a4a; color: #fff; }
-            
-            QTableWidget { background: #0d0d1a; border: 1px solid #2a2a4a; border-radius: 6px; gridline-color: #2a2a4a; alternate-background-color: #151528; font-size: 13px; }
-            QHeaderView::section { background: #1a1a2e; color: #64ffda; padding: 10px; border: none; font-weight: bold; font-size: 13px; }
-            QTableWidget::item { padding: 8px; }
-            QTableWidget::item:selected { background: #667eea; }
-            
-            QListWidget { background: #0d0d1a; border: 1px solid #2a2a4a; border-radius: 6px; font-size: 13px; }
-            QListWidget::item { padding: 8px; }
-            QListWidget::item:selected { background: #667eea; }
-            
-            QCheckBox { color: #e0e0e0; font-size: 13px; }
-            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #2a2a4a; background: #1a1a2e; }
-            QCheckBox::indicator:checked { background: #667eea; border-color: #667eea; }
-            
-            QSplitter::handle { background: #2a2a4a; }
-            QSplitter::handle:hover { background: #667eea; }
-            QSplitter::handle:horizontal { width: 5px; }
-            QSplitter::handle:vertical { height: 5px; }
-            
-            QMenuBar { background: #0f0f23; color: #e0e0e0; font-size: 13px; }
-            QMenuBar::item { padding: 8px 14px; border-radius: 4px; }
-            QMenuBar::item:selected { background: #2a2a4a; }
-            QMenu { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 6px; }
-            QMenu::item { padding: 8px 24px; border-radius: 4px; font-size: 13px; }
-            QMenu::item:selected { background: #667eea; }
-            
-            QScrollBar:vertical { background: #0f0f23; width: 10px; }
-            QScrollBar::handle:vertical { background: #2a2a4a; border-radius: 5px; min-height: 20px; }
-            QScrollBar::handle:vertical:hover { background: #667eea; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-            QScrollBar:horizontal { background: #0f0f23; height: 10px; }
-            QScrollBar::handle:horizontal { background: #2a2a4a; border-radius: 5px; min-width: 20px; }
-            QScrollBar::handle:horizontal:hover { background: #667eea; }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
-            
-            QStatusBar { background: #1a1a2e; color: #64ffda; padding: 6px; font-size: 12px; }
-            QMessageBox, QDialog { background: #0f0f23; }
-            QMessageBox QLabel { font-size: 13px; }
-        """)
+    def closeEvent(self, event):
+        if self.execution_thread and self.execution_thread.isRunning():
+            self.execution_thread.stop()
+            self.execution_thread.wait(2000)
+        event.accept()
 
 
 def main():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+    os.environ["PYTHONIOENCODING"] = "utf-8"
     
     app = QApplication(sys.argv)
     app.setApplicationName("Nuclei Template Generator Pro")
     
-    # Set larger default font based on platform
     if sys.platform == "darwin":
         font = QFont("SF Pro Display", 13)
     elif sys.platform.startswith("linux"):
