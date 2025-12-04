@@ -1,10 +1,3 @@
-"""
-Nuclei Template Generator v2.2 - Professional Edition
-- Auto-saves with user-provided Template ID as filename
-- Saves to user-configured template directory  
-- Fixed font sizing and encoding in execution
-"""
-
 import sys
 import os
 import re
@@ -1577,3 +1570,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
